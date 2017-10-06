@@ -3,7 +3,7 @@ project(
 	'cpp',
 	default_options: ['cpp_std=c++1z'])
 
-inc_dirs = include_directories(['/usr/include'])
+inc_dirs = include_directories(['include', '/usr/include'])
 sources = ['src/main.cpp']
 
 GLEWdep = dependency('glew', version : '>=2.0.0')
