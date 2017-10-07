@@ -9,35 +9,39 @@ namespace glfw {
 			const std::string& title,
 			GLFWmonitor * monitor = nullptr,
 			GLFWwindow * share = nullptr) :
-			window_(glfwCreateWindow(width, height, title.c_str(), monitor, share))
+			handle_(glfwCreateWindow(width, height, title.c_str(), monitor, share))
 		{
-		    if (not window_) throw "No glfw window?!?";
+		    if (not handle_) throw "No glfw window?!?";
 		}
 		~window()
 		{
-			glfwDestroyWindow(window_);
+			glfwDestroyWindow(handle_);
 		}
 		void makeContextCurrent()
 		{
-			glfwMakeContextCurrent(window_);
+			glfwMakeContextCurrent(handle_);
 		}
 		void setKeyCallback(void(*func)(GLFWwindow*, int, int, int, int))
 		{
-			glfwSetKeyCallback(window_, func);
+			glfwSetKeyCallback(handle_, func);
 		}
 		void show() const
 		{
-			glfwShowWindow(window_);
+			glfwShowWindow(handle_);
 		}
 		bool shouldClose() const
 		{
-			return glfwWindowShouldClose(window_);
+			return glfwWindowShouldClose(handle_);
 		}
 		void shouldClose(bool state) const
 		{
-			return glfwSetWindowShouldClose(window_, state);
+			return glfwSetWindowShouldClose(handle_, state);
+		}
+		void swapBuffers()
+		{
+			glfwSwapBuffers(handle_);
 		}
 	private:
-		GLFWwindow * const window_;
+		GLFWwindow * const handle_;
 	};
 }
