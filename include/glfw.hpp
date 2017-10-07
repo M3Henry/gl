@@ -1,7 +1,8 @@
-
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 
-namespace glfw {
+class glfw {
+public:
 	class window {
 	public:
 		window(
@@ -44,4 +45,16 @@ namespace glfw {
 	private:
 		GLFWwindow * const handle_;
 	};
-}
+private:
+	glfw()
+	{
+		if(not glfwInit()) throw std::runtime_error("glfwInit() failed");
+	}
+	~glfw()
+	{
+		glfwTerminate();
+	}
+	static glfw singleton;
+};
+
+glfw glfw::singleton;
