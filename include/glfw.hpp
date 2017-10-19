@@ -1,4 +1,5 @@
 #define GLFW_INCLUDE_NONE
+#include <vulkan/vulkan.hpp>
 #include <GLFW/glfw3.h>
 
 class glfw {
@@ -41,6 +42,12 @@ public:
 		void swapBuffers()
 		{
 			glfwSwapBuffers(handle_);
+		}
+		auto createSurface(vk::Instance& instance)
+		{
+			VkSurfaceKHR surface;
+			glfwCreateWindowSurface(instance, handle_, nullptr, &surface);
+			return vk::SurfaceKHR(surface);
 		}
 	private:
 		GLFWwindow * const handle_;
