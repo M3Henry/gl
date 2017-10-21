@@ -7,9 +7,11 @@
 #include <tuple>
 #include <set>
 #include <vector>
+#include <limits>
+#include <algorithm>
 
-const int WIDTH = 800;
-const int HEIGHT = 600;
+constexpr uint32_t WIDTH = 800;
+constexpr uint32_t HEIGHT = 600;
 float color = 0.f;
 int main()
 {
@@ -75,22 +77,59 @@ int main()
 			std::cout << std::endl;
 		}
 
-		auto physicalDevice = [&instance](){
+		auto physicalDevice = [&instance, &surface]()
+		{
 			auto devices = instance.enumeratePhysicalDevices();
-			std::cout << "Found " << devices.size() << " devices." << std::endl;
-			for (auto &d : devices)
+			std::cout << "Found " << devices.size() << " physical devices." << std::endl;
+			for (auto it = devices.begin(); it != devices.end();)
 			{
-				auto properties = d.getProperties();
-				auto features = d.getFeatures();
-				auto extensions = d.enumerateDeviceExtensionProperties();
-				std::cout << "    deviceType = " << to_string(properties.deviceType) << ",   geometryShader = " << (bool)features.geometryShader << '\n';
-				for (auto & x : extensions) std::cout << "        " << x.extensionName << "  v" << x.specVersion << '\n';
+				auto & d = *it;
+				bool failed = false;
+				{
+					auto properties = d.getProperties();
+					failed |= properties.deviceType != vk::PhysicalDeviceType::eDiscreteGpu;
+
+					auto features = d.getFeatures();
+					failed |= not features.geometryShader;
+
+					std::cout << "    deviceType = " << to_string(properties.deviceType) << ",   geometryShader = " << (bool)features.geometryShader << '\n';
+				}
+				{
+					auto extensions = d.enumerateDeviceExtensionProperties();
+					bool hasSwapChains = false;
+					for (auto & x : extensions)
+					{
+						std::cout << "        " << x.extensionName << "  v" << x.specVersion << '\n';
+						hasSwapChains |= not strcmp(x.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+					}
+					failed |= not hasSwapChains;
+				}
+				if (failed)
+				{
+					it = devices.erase(it);
+					continue;
+				}
+
+				auto surfaceFormats = d.getSurfaceFormatsKHR(surface);
+				failed |= surfaceFormats.empty();
+				auto surfacePresentModes = d.getSurfacePresentModesKHR(surface);
+				failed |= surfacePresentModes.empty();
+				std::cout << "    # surfaceFormats = " << surfaceFormats.size() << "  # surfacePresentModes = " << surfacePresentModes.size() << '\n';
+				if (failed)
+				{
+					it = devices.erase(it);
+				} else
+				{
+					++it;
+				}
 			}
 			std::cout << std::endl;
-			return devices.front();
+			if (devices.size()) return devices.front();
+			throw std::runtime_error("No suitable physical devices found!");
 		}();
 
-		auto queueFamily = [&physicalDevice, &surface](){
+		auto queueFamily = [&physicalDevice, &surface]()
+		{
 			int graphicsFamily = -1;
 			int presentationFamily = -1;
 			auto queueProperties = physicalDevice.getQueueFamilyProperties();
@@ -143,6 +182,59 @@ int main()
 
 		auto presentationQueue = logicalDevice.getQueue(queueFamily.second, 0); // 0 = queue index
 
+		auto surfaceFormat = [&physicalDevice, &surface]() -> vk::SurfaceFormatKHR
+		{
+			auto availableFormats = physicalDevice.getSurfaceFormatsKHR(surface);
+			auto desiredFormat = vk::Format::eB8G8R8A8Unorm;
+			auto desiredColorSpace = vk::ColorSpaceKHR::eSrgbNonlinear;
+			if (availableFormats.size() == 1 && availableFormats.front().format == vk::Format::eUndefined)
+			{
+				return {desiredFormat, desiredColorSpace};
+			}
+			for (const auto & f : availableFormats)
+			{
+				if (f.format == desiredFormat && f.colorSpace == desiredColorSpace) return f;
+			}
+			return availableFormats.front();
+		}();
+		std::cout << "SurfaceFormat = " << to_string(surfaceFormat.format) << "  Colourspace = " << to_string(surfaceFormat.colorSpace) << '\n';
+
+		auto presentationMode = [&physicalDevice, &surface]()
+		{
+			std::cout << "Available presentation modes:\n";
+			auto availableModes = physicalDevice.getSurfacePresentModesKHR(surface);
+			for (auto & m : availableModes)
+			{
+				std::cout << "    " << to_string(m) << '\n';
+			}
+			return vk::PresentModeKHR::eFifo;
+		}();
+
+		auto swapExtent = [&physicalDevice, &surface]() -> vk::Extent2D
+		{
+			auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+			if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+		        return capabilities.currentExtent;
+		    } else {
+				return {
+					std::max(
+						capabilities.minImageExtent.width,
+						std::min(
+							capabilities.maxImageExtent.width,
+							WIDTH
+						)
+					),
+					std::max(
+						capabilities.minImageExtent.height,
+						std::min(
+							capabilities.maxImageExtent.height,
+							HEIGHT
+						)
+					)
+				};
+			}
+		}();
+		std::cout << "Selected swap extent = " << swapExtent.width << 'x' << swapExtent.height << '\n';
 	}
 	catch (std::exception &exception)
 	{
