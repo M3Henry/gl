@@ -15,3 +15,19 @@ exe = executable(
 	sources: sources,
 	include_directories: inc_dirs,
 	dependencies: [GLEWdep, GLFWdep, VULKdep])
+
+comp = find_program('glslangValidator')
+
+vertex_target = custom_target('vertex-shader',
+	output : 'vert.spv',
+	input : 'src/shader.vert',
+	command : [comp, '-V', '-o', '@OUTPUT@', '@INPUT@'],
+	install : true,
+	install_dir : 'shaders')
+
+fragment_target = custom_target('fragment-shader',
+	output : 'frag.spv',
+	input : 'src/shader.frag',
+	command : [comp, '-V', '-o', '@OUTPUT@', '@INPUT@'],
+	install : true,
+	install_dir : 'shaders')

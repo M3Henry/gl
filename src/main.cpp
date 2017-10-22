@@ -9,6 +9,8 @@
 #include <vector>
 #include <limits>
 #include <algorithm>
+#include <fstream>
+#include <cstddef>
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -147,13 +149,13 @@ int main()
 			std::cout << "graphicsFamily = " << graphicsFamily << std::endl;
 			std::cout << "presentationFamily = " << presentationFamily << std::endl;
 			if (graphicsFamily < 0 || presentationFamily < 0) throw std::runtime_error("a queue family is missing");
-			return std::make_pair(graphicsFamily, presentationFamily);
+			return std::make_pair<uint32_t, uint32_t>(graphicsFamily, presentationFamily);
 		}();
 
 		auto logicalDevice = [&physicalDevice, &queueFamily]()
 		{
 			std::vector<vk::DeviceQueueCreateInfo> queueCreateInfos;
-			std::set<int> uniqueFamilies = {queueFamily.first, queueFamily.second};
+			std::set<uint32_t> uniqueFamilies = {queueFamily.first, queueFamily.second};
 			float queuePriority = 1.f;
 			for (auto qFam : uniqueFamilies)
 			{
@@ -199,42 +201,121 @@ int main()
 		}();
 		std::cout << "SurfaceFormat = " << to_string(surfaceFormat.format) << "  Colourspace = " << to_string(surfaceFormat.colorSpace) << '\n';
 
-		auto presentationMode = [&physicalDevice, &surface]()
+		auto swapChain = [&physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
 		{
-			std::cout << "Available presentation modes:\n";
-			auto availableModes = physicalDevice.getSurfacePresentModesKHR(surface);
-			for (auto & m : availableModes)
+			auto presentationMode = [&physicalDevice, &surface]()
 			{
-				std::cout << "    " << to_string(m) << '\n';
-			}
-			return vk::PresentModeKHR::eFifo;
+				std::cout << "Available presentation modes:\n";
+				auto availableModes = physicalDevice.getSurfacePresentModesKHR(surface);
+				for (auto & m : availableModes)
+				{
+					std::cout << "    " << to_string(m) << '\n';
+				}
+				return vk::PresentModeKHR::eFifo;
+			}();
+
+			auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+
+			auto swapExtent = [&capabilities]() -> vk::Extent2D
+			{
+				if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+			        return capabilities.currentExtent;
+			    } else {
+					return {
+						std::max(
+							capabilities.minImageExtent.width,
+							std::min(
+								capabilities.maxImageExtent.width,
+								WIDTH
+							)
+						),
+						std::max(
+							capabilities.minImageExtent.height,
+							std::min(
+								capabilities.maxImageExtent.height,
+								HEIGHT
+							)
+						)
+					};
+				}
+			}();
+
+			auto swapDepth = capabilities.minImageCount;
+			if (0 == swapDepth) swapDepth = 2;
+			std::cout << "Selected swap extent = " << swapExtent.width << 'x' << swapExtent.height << " : " << swapDepth << '\n';
+
+			auto exclusiveMode = queueFamily.first == queueFamily.second;
+			if (not exclusiveMode) throw std::runtime_error("Concurrent mode unsupported atm.");
+			std::vector<uint32_t> queueFamilyArray = {queueFamily.first, queueFamily.second};
+
+			auto scci = vk::SwapchainCreateInfoKHR
+			(
+				vk::SwapchainCreateFlagsKHR(),
+				surface,
+				swapDepth,
+				surfaceFormat.format, surfaceFormat.colorSpace,
+				swapExtent,
+				1, // image layers higher for stereoscopic
+				vk::ImageUsageFlagBits::eColorAttachment,
+				exclusiveMode ? vk::SharingMode::eExclusive : vk::SharingMode::eConcurrent,
+				queueFamilyArray.size(),
+				queueFamilyArray.data(),
+				capabilities.currentTransform,
+				vk::CompositeAlphaFlagBitsKHR::eOpaque,
+				presentationMode,
+				true,
+				vk::SwapchainKHR()
+			);
+
+			return logicalDevice.createSwapchainKHR(scci);
 		}();
 
-		auto swapExtent = [&physicalDevice, &surface]() -> vk::Extent2D
+		auto swapImages = logicalDevice.getSwapchainImagesKHR(swapChain);
+		std::cout << "Created swap chain with length " << swapImages.size() << '\n';
+
+		auto imageViews = [&logicalDevice, &swapImages, &surfaceFormat]()
 		{
-			auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
-			if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-		        return capabilities.currentExtent;
-		    } else {
-				return {
-					std::max(
-						capabilities.minImageExtent.width,
-						std::min(
-							capabilities.maxImageExtent.width,
-							WIDTH
-						)
-					),
-					std::max(
-						capabilities.minImageExtent.height,
-						std::min(
-							capabilities.maxImageExtent.height,
-							HEIGHT
-						)
+			std::vector<vk::ImageView> imageViews;
+			for (auto & i : swapImages)
+			{
+				auto ivci = vk::ImageViewCreateInfo
+				(
+					vk::ImageViewCreateFlags(),
+					i,
+					vk::ImageViewType::e2D,
+					surfaceFormat.format,
+					vk::ComponentMapping(),
+					vk::ImageSubresourceRange
+					(
+						vk::ImageAspectFlags(),
+						0,1, 	// mipmap levels
+						0,1		// array layers (higher for stereographic)
 					)
-				};
+				);
+				imageViews.push_back(logicalDevice.createImageView(ivci));
 			}
+			std::cout << "Created " << imageViews.size() << " image views." << std::endl;
+			return imageViews;
 		}();
-		std::cout << "Selected swap extent = " << swapExtent.width << 'x' << swapExtent.height << '\n';
+
+		auto graphicsPipeline = []()
+		{
+			auto fileReader = [](const std::string& filename)
+			{
+				std::ifstream file(filename, std::ios::ate | std::ios::binary);
+				if (not file) throw std::runtime_error("failed to open " + filename);
+				size_t size = file.tellg();
+				std::vector<std::byte> buffer(size);
+				file.read(reinterpret_cast<char*>(buffer.data()), size);
+				file.close();
+				std::cout << filename << " loaded " << size << " bytes." << std::endl;
+				return buffer;
+			};
+			auto vertShaderCode = fileReader("shad.spv");
+			auto fragShaderCode = fileReader("frag.spv");
+			return false;
+		}();
+
 	}
 	catch (std::exception &exception)
 	{
