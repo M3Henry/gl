@@ -7,14 +7,14 @@ inc_dirs = include_directories(['include', '/usr/include'])
 sources = ['src/main.cpp']
 
 VULKdep = dependency('vulkan', version : '>=1.0.42')
-GLEWdep = dependency('glew', version : '>=2.0.0')
+#GLEWdep = dependency('glew', version : '>=2.0.0')
 GLFWdep = dependency('glfw3', version : '>=3.2.0')
 
 exe = executable(
 	'exe',
 	sources: sources,
 	include_directories: inc_dirs,
-	dependencies: [GLEWdep, GLFWdep, VULKdep])
+	dependencies: [GLFWdep, VULKdep])
 
 comp = find_program('glslangValidator')
 

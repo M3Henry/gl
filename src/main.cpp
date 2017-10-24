@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include <cstddef>
+#include <array>
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -49,7 +50,8 @@ int main()
 	// vulkan
 	try
 	{
-		auto appInfo = vk::ApplicationInfo(
+		auto appInfo = vk::ApplicationInfo
+		(
 			"Hello, vulkan", VK_MAKE_VERSION(1, 0, 0),
 			"no engine", VK_MAKE_VERSION(1, 0, 0),
 			VK_API_VERSION_1_0
@@ -61,7 +63,8 @@ int main()
 		for (unsigned int i = 0; i < glfwExtensionCount; ++i) std::cout << "    " << glfwExtensions[i] << '\n';
 		std::cout << std::endl;
 
-		auto ici = vk::InstanceCreateInfo(
+		auto ici = vk::InstanceCreateInfo
+		(
 			vk::InstanceCreateFlags(),
 			&appInfo,
 			0, nullptr,
@@ -201,7 +204,8 @@ int main()
 		}();
 		std::cout << "SurfaceFormat = " << to_string(surfaceFormat.format) << "  Colourspace = " << to_string(surfaceFormat.colorSpace) << '\n';
 
-		auto swapChain = [&physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
+		vk::Extent2D swapExtent;
+		auto swapChain = [&swapExtent, &physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
 		{
 			auto presentationMode = [&physicalDevice, &surface]()
 			{
@@ -216,7 +220,7 @@ int main()
 
 			auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
 
-			auto swapExtent = [&capabilities]() -> vk::Extent2D
+			swapExtent = [&swapExtent, &capabilities]() -> vk::Extent2D
 			{
 				if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
 			        return capabilities.currentExtent;
@@ -298,22 +302,183 @@ int main()
 			return imageViews;
 		}();
 
-		auto graphicsPipeline = []()
+		auto pipelineLayout = [&logicalDevice]()
 		{
-			auto fileReader = [](const std::string& filename)
+			auto plci = vk::PipelineLayoutCreateInfo
+			(
+				vk::PipelineLayoutCreateFlags(),
+				0, nullptr,	// layouts
+				0, nullptr	// push constant ranges
+			);
+			return logicalDevice.createPipelineLayout(plci);
+		}();
+
+		auto renderPass = [&logicalDevice, &surfaceFormat]()
+		{
+			auto colourAttachment = vk::AttachmentDescription
+			(
+				vk::AttachmentDescriptionFlags(),
+				surfaceFormat.format,
+				vk::SampleCountFlagBits::e1,
+				vk::AttachmentLoadOp::eClear,	// render data
+				vk::AttachmentStoreOp::eStore,
+				vk::AttachmentLoadOp::eDontCare,	// stencil data
+				vk::AttachmentStoreOp::eDontCare,
+				vk::ImageLayout::eUndefined,
+				vk::ImageLayout::ePresentSrcKHR
+			);
+			auto colourAttachmentRef = vk::AttachmentReference(0, vk::ImageLayout::eColorAttachmentOptimal);
+
+			auto subpass = vk::SubpassDescription
+			(
+				vk::SubpassDescriptionFlags(),
+				vk::PipelineBindPoint::eGraphics,
+				1, &colourAttachmentRef
+				// etc
+			);
+			auto rpci = vk::RenderPassCreateInfo
+			(
+				vk::RenderPassCreateFlags(),
+				1, &colourAttachment,
+				1, &subpass,
+				0, nullptr // dependencies
+			);
+			return logicalDevice.createRenderPass(rpci);
+		}();
+
+		auto graphicsPipeline = [&pipelineLayout, &renderPass, &logicalDevice, &swapExtent]()
+		{
+			auto fileReader = [&logicalDevice](const std::string& filename)
 			{
 				std::ifstream file(filename, std::ios::ate | std::ios::binary);
 				if (not file) throw std::runtime_error("failed to open " + filename);
 				size_t size = file.tellg();
-				std::vector<std::byte> buffer(size);
-				file.read(reinterpret_cast<char*>(buffer.data()), size);
+				std::vector<char> buffer(size);
+				file.read(buffer.data(), size);
 				file.close();
 				std::cout << filename << " loaded " << size << " bytes." << std::endl;
-				return buffer;
+				auto smci = vk::ShaderModuleCreateInfo
+				(
+					vk::ShaderModuleCreateFlags(),
+					size,
+					reinterpret_cast<const uint32_t*>(buffer.data())
+				);
+				return logicalDevice.createShaderModule(smci);
+				//return buffer;
 			};
-			auto vertShaderCode = fileReader("shad.spv");
+			auto vertShaderCode = fileReader("vert.spv");
 			auto fragShaderCode = fileReader("frag.spv");
-			return false;
+			std::vector<vk::PipelineShaderStageCreateInfo> stages;
+			stages.emplace_back
+			(
+				vk::PipelineShaderStageCreateFlags(),
+				vk::ShaderStageFlagBits::eVertex,
+				vertShaderCode,
+				"main",
+				nullptr	// specialization info (for constants)
+			);
+			stages.emplace_back
+			(
+				vk::PipelineShaderStageCreateFlags(),
+				vk::ShaderStageFlagBits::eFragment,
+				fragShaderCode,
+				"main",
+				nullptr	// specialization info (for constants)
+			);
+			auto pvisci = vk::PipelineVertexInputStateCreateInfo
+			(
+				vk::PipelineVertexInputStateCreateFlags(),
+				0, nullptr,
+				0, nullptr
+			);
+			auto piasci = vk::PipelineInputAssemblyStateCreateInfo
+			(
+				vk::PipelineInputAssemblyStateCreateFlags(),
+				vk::PrimitiveTopology::eTriangleList,
+				false
+			);
+			auto viewport = vk::Viewport
+			(
+				0.f, 0.f,	// xy centre
+				swapExtent.width, swapExtent.height,
+				0.f, 1.f	// z extent
+			);
+			auto scissor = vk::Rect2D({0, 0}, swapExtent);
+
+			auto pvsci= vk::PipelineViewportStateCreateInfo
+			(
+				vk::PipelineViewportStateCreateFlags(),
+				1, &viewport,
+				1, &scissor
+			);
+			auto rasterizer = vk::PipelineRasterizationStateCreateInfo
+			(
+				vk::PipelineRasterizationStateCreateFlags(),
+				false,	// depth clamp
+				false,	// discard all
+				vk::PolygonMode::eFill,
+				vk::CullModeFlagBits::eBack,
+				vk::FrontFace::eClockwise,
+				false, 0.f, 0.f, 0.f,	// depth bias
+				1.f	// line width
+			);
+			auto multisampler = vk::PipelineMultisampleStateCreateInfo
+			(
+				vk::PipelineMultisampleStateCreateFlags(),
+				vk::SampleCountFlagBits::e1,
+				false,	// enable
+				1.f,	// min sample shading
+				nullptr,// sample mask
+				false,	// alpha to coverage
+				false	// alpha to one
+			);
+			auto depthStencil = vk::PipelineDepthStencilStateCreateInfo
+			();
+			auto colourBlendAttachment = vk::PipelineColorBlendAttachmentState
+			(
+				false, // enable
+				vk::BlendFactor::eOne,	// colour
+				vk::BlendFactor::eZero,
+				vk::BlendOp::eAdd,
+				vk::BlendFactor::eOne,	// alpha
+				vk::BlendFactor::eZero,
+				vk::BlendOp::eAdd,
+				(
+					vk::ColorComponentFlagBits::eR
+					| vk::ColorComponentFlagBits::eG
+					| vk::ColorComponentFlagBits::eB
+					| vk::ColorComponentFlagBits::eA
+				)
+			);
+			auto colourBlending = vk::PipelineColorBlendStateCreateInfo
+			(
+				vk::PipelineColorBlendStateCreateFlags(),
+				false,	// logic operations
+				vk::LogicOp::eCopy,
+				1, &colourBlendAttachment,
+				{0, 0, 0, 0} // blend constants
+			);
+			auto dynamicState = vk::PipelineDynamicStateCreateInfo
+			();
+			auto gpci = vk::GraphicsPipelineCreateInfo
+			(
+				vk::PipelineCreateFlags(),
+				2, stages.data(),
+				&pvisci,
+				&piasci,
+				nullptr,	// assembly state
+				&pvsci,
+				&rasterizer,
+				&multisampler,
+				nullptr,	//&depthStencil,
+				&colourBlending,
+				nullptr,	//&dynamicState,
+				pipelineLayout,
+				renderPass,
+				0,	// subpass
+				vk::Pipeline(), -1 // base pipeline
+			);
+			return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
 		}();
 
 	}
