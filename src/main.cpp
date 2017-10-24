@@ -13,6 +13,47 @@
 #include <cstddef>
 #include <array>
 
+bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::ExtensionProperties> able)
+{
+	std::vector<char const*> matched;
+	for (auto n = need.begin(); n != need.end();)
+	{
+		bool found;
+		for (auto a = able.begin(); a != able.end(); ++a)
+		{
+			found = not strcmp(a->extensionName, *n);
+			if (found)
+			{
+				able.erase(a);
+				break;
+			}
+		}
+		if (found)
+		{
+			matched.push_back(*n);
+			n = need.erase(n);
+		} else
+		{
+			++n;
+		}
+	}
+	using std::cout; using std::endl;
+	bool success = not need.size();
+	if (not success)
+	{
+		cout << "\x1B[31;1m";
+		for (auto x : need) cout << "  " << x << '\n';
+	}
+	if (matched.size())
+	{
+		cout << "\x1B[32;1m";
+		for (auto x : matched) cout << "  " << x << '\n';
+	}
+	cout << "\x1B[m";
+	for (auto x : able) cout << "  " << x.extensionName << '\n';
+	return success;
+}
+
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
 float color = 0.f;
@@ -20,12 +61,12 @@ int main()
 {
 	std::cout << std::boolalpha << "Hello, world!\n" << std::endl;
 
-    glfwWindowHint(GLFW_VISIBLE, false);
+	glfwWindowHint(GLFW_VISIBLE, false);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    glfw::window mainWindow(WIDTH, HEIGHT, "Hello GLFW");
-    glfwSwapInterval(1);
-    mainWindow.makeContextCurrent();
+	glfw::window mainWindow(WIDTH, HEIGHT, "Hello GLFW");
+	glfwSwapInterval(1);
+	mainWindow.makeContextCurrent();
 	mainWindow.setKeyCallback
 	(
 		[](GLFWwindow* window, int key, int scancode, int action, int mods)
@@ -57,29 +98,24 @@ int main()
 			VK_API_VERSION_1_0
 		);
 
-		unsigned int glfwExtensionCount;
-		auto glfwExtensions = glfwGetRequiredInstanceExtensions(&glfwExtensionCount);
-		std::cout << "Required glfwExtensions:\n";
-		for (unsigned int i = 0; i < glfwExtensionCount; ++i) std::cout << "    " << glfwExtensions[i] << '\n';
-		std::cout << std::endl;
+		auto glfwExtensions = glfw::requiredVulkanExtensions();
 
 		auto ici = vk::InstanceCreateInfo
 		(
 			vk::InstanceCreateFlags(),
 			&appInfo,
 			0, nullptr,
-			glfwExtensionCount, glfwExtensions
+			glfwExtensions.size(), glfwExtensions.data()
 		);
 
-	    auto instance = createInstance(ici);
+		auto instance = createInstance(ici);
 
 		auto surface = mainWindow.createSurface(instance);
 
 		{
 			auto extension = vk::enumerateInstanceExtensionProperties();
-			std::cout << "Available Vulkan extensions:\n";
-			for (auto &x : extension) std::cout << "    " << x.extensionName << '\n';
-			std::cout << std::endl;
+			//glfwExtensions.push_back("fake_extension");
+			if (not hasRequiredExtensions(glfwExtensions, extension)) throw std::runtime_error("Missing required vulkan extension[s]");
 		}
 
 		auto physicalDevice = [&instance, &surface]()
@@ -100,14 +136,11 @@ int main()
 					std::cout << "    deviceType = " << to_string(properties.deviceType) << ",   geometryShader = " << (bool)features.geometryShader << '\n';
 				}
 				{
-					auto extensions = d.enumerateDeviceExtensionProperties();
-					bool hasSwapChains = false;
-					for (auto & x : extensions)
+					std::vector<char const*> required =
 					{
-						std::cout << "        " << x.extensionName << "  v" << x.specVersion << '\n';
-						hasSwapChains |= not strcmp(x.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-					}
-					failed |= not hasSwapChains;
+						VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+					};
+					failed |= not hasRequiredExtensions(required, d.enumerateDeviceExtensionProperties() );
 				}
 				if (failed)
 				{

@@ -1,9 +1,20 @@
 #define GLFW_INCLUDE_NONE
 #include <vulkan/vulkan.hpp>
 #include <GLFW/glfw3.h>
+#include <string>
+//#include <pair>
 
 class glfw {
 public:
+	static auto requiredVulkanExtensions()
+	{
+				unsigned int extensionCount;
+				auto glfwExtensions = glfwGetRequiredInstanceExtensions(&extensionCount);
+				std::vector<char const*> extensions;
+				for (unsigned int i = 0; i < extensionCount; ++i) extensions.push_back(glfwExtensions[i]);
+				return extensions;
+				//return std::make_pair(extensionCount, glfwExtensions);
+	}
 	class window {
 	public:
 		window(
