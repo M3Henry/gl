@@ -478,7 +478,79 @@ int main()
 			);
 			return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
 		}();
-		std::cout << "Created graphics pipeline" << std::endl;
+		std::cout << "Created graphics pipeline\n";
+
+		auto framebuffers = [&imageViews, &logicalDevice, &renderPass, &swapExtent]()
+		{
+			std::vector<vk::Framebuffer> framebuffers;
+			for (auto & v : imageViews)	framebuffers.push_back
+			(
+				logicalDevice.createFramebuffer
+				({
+					vk::FramebufferCreateFlags(),
+					renderPass,
+					1, &v,
+					swapExtent.width, swapExtent.height,
+					1	// layers
+				})
+			);
+			std::cout << "Created " << framebuffers.size() << " framebuffers\n";
+			return framebuffers;
+		}();
+
+		auto commandPool = logicalDevice.createCommandPool
+		({
+			vk::CommandPoolCreateFlags(),
+			queueFamily.first
+			// command pool flags
+		});
+		std::cout << "Created command pool\n";
+
+		auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent]()
+		{
+			auto commandBuffers = logicalDevice.allocateCommandBuffers
+			({
+				commandPool,
+				vk::CommandBufferLevel::ePrimary,
+				framebuffers.size()
+			});
+			auto f = framebuffers.begin();
+			for (auto & b : commandBuffers)
+			{
+				b.begin
+				({
+					vk::CommandBufferUsageFlagBits::eSimultaneousUse,
+					nullptr //	inheritance info
+				});
+				constexpr std::array<float,4> clearValues = {0.f, 0.f, 0.f, 1.f};
+				auto c = vk::ClearColorValue(clearValues);
+				auto cc = vk::ClearValue(c);
+				b.beginRenderPass
+				(
+					{
+						renderPass,
+						*f,
+						vk::Rect2D({0, 0}, swapExtent),
+						1, &cc
+					},
+					vk::SubpassContents::eInline
+				);
+				b.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
+				b.draw
+				(
+					3,	// vertices
+					1,	// instances
+					0,	// vertex offset
+					0		// instance instances
+				);
+				b.endRenderPass();
+				++f;
+			}
+			std::cout << "Created " << commandBuffers.size() << " command buffers\n";
+			return commandBuffers;
+		}();
+
+		// end
 	}
 	catch (std::exception &exception)
 	{
