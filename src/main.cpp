@@ -11,6 +11,7 @@
 #include <array>
 #include "utils.hpp"
 
+
 extern uint32_t _binary_vert_spv_end;
 extern uint32_t _binary_vert_spv_start;
 auto vertexObject = make_file(_binary_vert_spv_start, _binary_vert_spv_end);
@@ -341,12 +342,18 @@ int main()
 				1, &colourAttachmentRef // color
 				// etc
 			);
+			auto dependency = vk::SubpassDependency
+			(
+				VK_SUBPASS_EXTERNAL, 0,
+				vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+				vk::AccessFlags(), vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite
+			);
 			auto rpci = vk::RenderPassCreateInfo
 			(
 				vk::RenderPassCreateFlags(),
 				1, &colourAttachment,
 				1, &subpass,
-				0, nullptr // dependencies
+				1, &dependency // dependencies
 			);
 			return logicalDevice.createRenderPass(rpci);
 		}();
@@ -544,26 +551,56 @@ int main()
 					0		// instance instances
 				);
 				b.endRenderPass();
+				b.end();
 				++f;
 			}
 			std::cout << "Created " << commandBuffers.size() << " command buffers\n";
 			return commandBuffers;
 		}();
 
+		auto imageAvailable = logicalDevice.createSemaphore({});
+		auto renderFinished = logicalDevice.createSemaphore({});
+
+		// loop time
+		mainWindow.show();
+		std::cout << "\x1B[32;1mEVERYTHING SET UP, LET'S GO!!!\x1B[m" << std::endl;
+		while(not mainWindow.shouldClose())
+		{
+			uint32_t imageIndex;
+			logicalDevice.acquireNextImageKHR
+			(
+				swapChain,
+				std::numeric_limits<uint64_t>::max(),
+				imageAvailable,
+				vk::Fence(),
+				&imageIndex
+			);
+			vk::PipelineStageFlags destStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+			auto si = vk::SubmitInfo
+			(
+				1, &imageAvailable, &destStageMask,
+				1, &commandBuffers[imageIndex],
+				1, &renderFinished
+			);
+			graphicsQueue.submit(1, &si, vk::Fence() );
+			presentationQueue.presentKHR
+			({
+				1, &renderFinished,
+				1, &swapChain,
+				&imageIndex,
+				nullptr
+			});
+			//mainWindow.swapBuffers();
+			::usleep(100000);
+			glfwWaitEvents();
+		}
+		logicalDevice.waitIdle();
 		// end
 	}
 	catch (std::exception &exception)
 	{
 		std::cerr << exception.what() << std::endl;
 		return EXIT_FAILURE;
-	}
-	// loop time
-    mainWindow.show();
-	while(not mainWindow.shouldClose())
-	{
-		mainWindow.swapBuffers();
-		::usleep(100000);
-		glfwWaitEvents();
 	}
 	return EXIT_SUCCESS;
 }
