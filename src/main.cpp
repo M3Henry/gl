@@ -3,56 +3,14 @@
 #include <thread>
 #include <unistd.h>
 #include "glfw.hpp"
-#include <typeinfo>
-#include <tuple>
 #include <set>
-#include <vector>
 #include <limits>
 #include <algorithm>
 #include <fstream>
 #include <cstddef>
 #include <array>
+#include "utils.hpp"
 
-bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::ExtensionProperties> able)
-{
-	std::vector<char const*> matched;
-	for (auto n = need.begin(); n != need.end();)
-	{
-		bool found;
-		for (auto a = able.begin(); a != able.end(); ++a)
-		{
-			found = not strcmp(a->extensionName, *n);
-			if (found)
-			{
-				able.erase(a);
-				break;
-			}
-		}
-		if (found)
-		{
-			matched.push_back(*n);
-			n = need.erase(n);
-		} else
-		{
-			++n;
-		}
-	}
-	using std::cout; using std::endl;
-	bool success = not need.size();
-	if (not success)
-	{
-		cout << "\x1B[31;1m";
-		for (auto x : need) cout << "  " << x << '\n';
-	}
-	if (matched.size())
-	{
-		cout << "\x1B[32;1m";
-		for (auto x : matched) cout << "  " << x << '\n';
-	}
-	cout << "\x1B[m";
-	for (auto x : able) cout << "  " << x.extensionName << '\n';
-	return success;
-}
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -91,32 +49,38 @@ int main()
 	// vulkan
 	try
 	{
-		auto appInfo = vk::ApplicationInfo
-		(
-			"Hello, vulkan", VK_MAKE_VERSION(1, 0, 0),
-			"no engine", VK_MAKE_VERSION(1, 0, 0),
-			VK_API_VERSION_1_0
-		);
+		auto instance = []()
+		{
+			auto requiredExtensions = glfw::requiredVulkanExtensions();
+			{
+				auto available = vk::enumerateInstanceExtensionProperties();
+				std::cout << "Vulkan extensions:\n";
+				if (not hasRequiredExtensions(requiredExtensions, available)) throw std::runtime_error("Missing required vulkan extension[s]");
+			}
+			const std::vector<char const*> requiredLayers = {"VK_LAYER_LUNARG_standard_validation"};
+			{
+				auto available = vk::enumerateInstanceLayerProperties();
+				std::cout << "Vulkan layers:\n";
+				if (not hasRequiredLayers(requiredLayers, available)) throw std::runtime_error("Missing required vulkan layer[s]");
+			}
+			auto appInfo = vk::ApplicationInfo
+			(
+				"Hello, vulkan", VK_MAKE_VERSION(1, 0, 0),
+				"no engine", VK_MAKE_VERSION(1, 0, 0),
+				VK_API_VERSION_1_0
+			);
+			auto ici = vk::InstanceCreateInfo
+			(
+				vk::InstanceCreateFlags(),
+				&appInfo,
+				requiredLayers.size(), requiredLayers.data(),
+				requiredExtensions.size(), requiredExtensions.data()
+			);
 
-		auto glfwExtensions = glfw::requiredVulkanExtensions();
-
-		auto ici = vk::InstanceCreateInfo
-		(
-			vk::InstanceCreateFlags(),
-			&appInfo,
-			0, nullptr,
-			glfwExtensions.size(), glfwExtensions.data()
-		);
-
-		auto instance = createInstance(ici);
+			return createInstance(ici);
+		}();
 
 		auto surface = mainWindow.createSurface(instance);
-
-		{
-			auto extension = vk::enumerateInstanceExtensionProperties();
-			//glfwExtensions.push_back("fake_extension");
-			if (not hasRequiredExtensions(glfwExtensions, extension)) throw std::runtime_error("Missing required vulkan extension[s]");
-		}
 
 		auto physicalDevice = [&instance, &surface]()
 		{
@@ -324,7 +288,7 @@ int main()
 					vk::ComponentMapping(),
 					vk::ImageSubresourceRange
 					(
-						vk::ImageAspectFlags(),
+						vk::ImageAspectFlagBits::eColor,
 						0,1, 	// mipmap levels
 						0,1		// array layers (higher for stereographic)
 					)
@@ -366,7 +330,8 @@ int main()
 			(
 				vk::SubpassDescriptionFlags(),
 				vk::PipelineBindPoint::eGraphics,
-				1, &colourAttachmentRef
+				0, nullptr,	// input
+				1, &colourAttachmentRef // color
 				// etc
 			);
 			auto rpci = vk::RenderPassCreateInfo
@@ -385,16 +350,16 @@ int main()
 			{
 				std::ifstream file(filename, std::ios::ate | std::ios::binary);
 				if (not file) throw std::runtime_error("failed to open " + filename);
+				std::cout << "Loading '" << filename << '\'';
 				size_t size = file.tellg();
-				std::vector<char> buffer(size);
+				std::vector<short> buffer(size / 2);
 				file.read(buffer.data(), size);
 				file.close();
-				std::cout << filename << " loaded " << size << " bytes." << std::endl;
+				std::cout << ' ' << size << " bytes" << std::endl;
 				auto smci = vk::ShaderModuleCreateInfo
 				(
 					vk::ShaderModuleCreateFlags(),
-					size,
-					reinterpret_cast<const uint32_t*>(buffer.data())
+					size,	reinterpret_cast<const uint32_t*>(buffer.data())
 				);
 				return logicalDevice.createShaderModule(smci);
 				//return buffer;
