@@ -82,3 +82,9 @@ bool hasRequiredLayers(std::vector<char const*> need, std::vector<vk::LayerPrope
 	for (auto x : able) cout << "  " << x.layerName << '\n';
 	return success;
 }
+
+template <typename T>
+auto make_file(T& start, T& end)
+{
+	 return std::make_pair((&end - &start) * sizeof(T), &start);
+}

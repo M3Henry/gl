@@ -11,6 +11,13 @@
 #include <array>
 #include "utils.hpp"
 
+extern uint32_t _binary_vert_spv_end;
+extern uint32_t _binary_vert_spv_start;
+auto vertexObject = make_file(_binary_vert_spv_start, _binary_vert_spv_end);
+
+extern uint32_t _binary_frag_spv_end;
+extern uint32_t _binary_frag_spv_start;
+auto fragmentObject = make_file(_binary_frag_spv_start, _binary_frag_spv_end);
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;
@@ -346,26 +353,19 @@ int main()
 
 		auto graphicsPipeline = [&pipelineLayout, &renderPass, &logicalDevice, &swapExtent]()
 		{
-			auto fileReader = [&logicalDevice](const std::string& filename)
+			auto objReader = [&logicalDevice](std::pair<size_t, uint32_t*> code)
 			{
-				std::ifstream file(filename, std::ios::ate | std::ios::binary);
-				if (not file) throw std::runtime_error("failed to open " + filename);
-				std::cout << "Loading '" << filename << '\'';
-				size_t size = file.tellg();
-				std::vector<short> buffer(size / 2);
-				file.read(buffer.data(), size);
-				file.close();
-				std::cout << ' ' << size << " bytes" << std::endl;
+				std::cout << "Reading " << code.first << " bytes from " << code.second << std::endl;
 				auto smci = vk::ShaderModuleCreateInfo
 				(
 					vk::ShaderModuleCreateFlags(),
-					size,	reinterpret_cast<const uint32_t*>(buffer.data())
+					code.first,	code.second
 				);
 				return logicalDevice.createShaderModule(smci);
 				//return buffer;
 			};
-			auto vertShaderCode = fileReader("vert.spv");
-			auto fragShaderCode = fileReader("frag.spv");
+			auto vertShaderCode = objReader(::vertexObject);
+			auto fragShaderCode = objReader(::fragmentObject);
 			std::vector<vk::PipelineShaderStageCreateInfo> stages;
 			stages.emplace_back
 			(
@@ -478,7 +478,7 @@ int main()
 			);
 			return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
 		}();
-
+		std::cout << "Created graphics pipeline" << std::endl;
 	}
 	catch (std::exception &exception)
 	{
