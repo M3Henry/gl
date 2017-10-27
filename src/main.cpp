@@ -2,14 +2,13 @@
 #include <chrono>
 #include <thread>
 #include <unistd.h>
-#include "glfw.hpp"
+#include "hulkan.hpp"
 #include <set>
 #include <limits>
 #include <algorithm>
 #include <fstream>
 #include <cstddef>
 #include <array>
-#include "utils.hpp"
 
 
 extern uint32_t _binary_vert_spv_end;
@@ -57,36 +56,7 @@ int main()
 	// vulkan
 	try
 	{
-		auto instance = []()
-		{
-			auto requiredExtensions = glfw::requiredVulkanExtensions();
-			{
-				auto available = vk::enumerateInstanceExtensionProperties();
-				std::cout << "Vulkan extensions:\n";
-				if (not hasRequiredExtensions(requiredExtensions, available)) throw std::runtime_error("Missing required vulkan extension[s]");
-			}
-			const std::vector<char const*> requiredLayers = {"VK_LAYER_LUNARG_standard_validation"};
-			{
-				auto available = vk::enumerateInstanceLayerProperties();
-				std::cout << "Vulkan layers:\n";
-				if (not hasRequiredLayers(requiredLayers, available)) throw std::runtime_error("Missing required vulkan layer[s]");
-			}
-			auto appInfo = vk::ApplicationInfo
-			(
-				"Hello, vulkan", VK_MAKE_VERSION(1, 0, 0),
-				"no engine", VK_MAKE_VERSION(1, 0, 0),
-				VK_API_VERSION_1_0
-			);
-			auto ici = vk::InstanceCreateInfo
-			(
-				vk::InstanceCreateFlags(),
-				&appInfo,
-				requiredLayers.size(), requiredLayers.data(),
-				requiredExtensions.size(), requiredExtensions.data()
-			);
-
-			return createInstance(ici);
-		}();
+		auto& instance = vulkan::instance();
 
 		auto surface = mainWindow.createSurface(instance);
 
