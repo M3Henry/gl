@@ -13,9 +13,5 @@ The command to **initially** configure it:
 ```bash
 meson build && cd build
 ```
-To [re]build, reconfigure, just run **`ninja`** in the `build` directory.
-The built executable is named `exe` and can be run.
-```bash
-./exe
-```
+To [re]build, reconfigure, just run **`ninja exec`** from the `build` directory.
 Obviously you will need graphics drivers and a graphics card which support the Vulkan API.
