@@ -11,13 +11,13 @@
 #include <array>
 
 
-extern uint32_t _binary_vert_spv_end;
-extern uint32_t _binary_vert_spv_start;
-auto vertexObject = make_file(_binary_vert_spv_start, _binary_vert_spv_end);
+extern uint32_t _binary_shader_vert_spv_end;
+extern uint32_t _binary_shader_vert_spv_start;
+auto vertexObject = make_file(_binary_shader_vert_spv_start, _binary_shader_vert_spv_end);
 
-extern uint32_t _binary_frag_spv_end;
-extern uint32_t _binary_frag_spv_start;
-auto fragmentObject = make_file(_binary_frag_spv_start, _binary_frag_spv_end);
+extern uint32_t _binary_shader_frag_spv_end;
+extern uint32_t _binary_shader_frag_spv_start;
+auto fragmentObject = make_file(_binary_shader_frag_spv_start, _binary_shader_frag_spv_end);
 
 constexpr uint32_t WIDTH = 800;
 constexpr uint32_t HEIGHT = 600;

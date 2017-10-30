@@ -7,44 +7,36 @@ inc_dirs = include_directories(['include', '/usr/include'])
 sources = ['src/main.cpp']
 
 VULKdep = dependency('vulkan', version : '>=1.0.42')
-#GLEWdep = dependency('glew', version : '>=2.0.0')
 GLFWdep = dependency('glfw3', version : '>=3.2.0')
 
 glslang = find_program('glslangValidator')
 
 ld = find_program('ld')
 
-vertex_shader_code = custom_target('vertex-shader',
-	output : 'vert.spv',
-	input : 'src/shader.vert',
-	command : [glslang, '-V', '-o', '@OUTPUT@', '@INPUT@'],
-	install : true,
-	install_dir : 'shaders')
+glcmd = [glslang, '-V', '-o', '@OUTPUT@', '@INPUT@']
 
-vertex_object = custom_target('vertex-object',
-	output: 'vert.o',
-	input: vertex_shader_code,
-	command: [ld, '-r', '-b', 'binary', '-o', '@OUTPUT@', '@INPUT@'],
-	install: true,
-	install_dir: 'shaders')
+glcompiler = generator(glslang,
+	arguments: ['-V', '-o', '@OUTPUT@', '@INPUT@'],
+	output: '@PLAINNAME@.spv')
 
-fragment_shader_code = custom_target('fragment-shader',
-	output : 'frag.spv',
-	input : 'src/shader.frag',
-	command : [glslang, '-V', '-o', '@OUTPUT@', '@INPUT@'],
-	install : true,
-	install_dir : 'shaders')
+embed_file = generator(ld,
+	arguments: ['-r', '-b', 'binary', '-o', '@OUTPUT@', '@INPUT@'],
+	output: '@PLAINNAME@.o')
 
-fragment_object = custom_target('fragment-object',
-	output: 'frag.o',
-	input: fragment_shader_code,
-	command: [ld, '-r', '-b', 'binary', '-o', '@OUTPUT@', '@INPUT@'],
-	install: true,
-	install_dir: 'shaders')
+embed = find_program('embed.sh')
+
+shaders = custom_target('shaders',
+	output: 'shader.o',
+	input: [glcompiler.process('src/shader.frag'), glcompiler.process('src/shader.vert')],
+	command: [embed, '@OUTPUT@', '@INPUT@'],
+	build_by_default: true)
 
 exe = executable(
 	'exe',
-	vertex_object, fragment_object,
+	shaders,
 	sources: sources,
 	include_directories: inc_dirs,
 	dependencies: [GLFWdep, VULKdep])
+
+run_target('exec',
+	command: exe)
