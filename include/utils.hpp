@@ -1,7 +1,8 @@
 #include <iostream>
 #include "vulkan/vulkan.hpp"
 
-bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::ExtensionProperties> able)
+template<typename T>
+bool hasRequiredStrings(std::vector<char const*> need, std::vector<T> able, char(T::* name)[256])
 {
 	std::vector<char const*> matched;
 	for (auto n = need.begin(); n != need.end();)
@@ -9,7 +10,7 @@ bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::Extens
 		bool found;
 		for (auto a = able.begin(); a != able.end(); ++a)
 		{
-			found = not strcmp(a->extensionName, *n);
+			found = not strcmp((*a).*name, *n);
 			if (found)
 			{
 				able.erase(a);
@@ -38,49 +39,18 @@ bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::Extens
 		for (auto x : matched) cout << "  " << x << '\n';
 	}
 	cout << "\x1B[m";
-	for (auto x : able) cout << "  " << x.extensionName << '\n';
+	for (auto x : able) cout << "  " << x.*name << '\n';
 	return success;
+}
+
+bool hasRequiredExtensions(std::vector<char const*> need, std::vector<vk::ExtensionProperties> able)
+{
+	return hasRequiredStrings(need, able, &vk::ExtensionProperties::extensionName);
 }
 
 bool hasRequiredLayers(std::vector<char const*> need, std::vector<vk::LayerProperties> able)
 {
-	std::vector<char const*> matched;
-	for (auto n = need.begin(); n != need.end();)
-	{
-		bool found;
-		for (auto a = able.begin(); a != able.end(); ++a)
-		{
-			found = not strcmp(a->layerName, *n);
-			if (found)
-			{
-				able.erase(a);
-				break;
-			}
-		}
-		if (found)
-		{
-			matched.push_back(*n);
-			n = need.erase(n);
-		} else
-		{
-			++n;
-		}
-	}
-	using std::cout; using std::endl;
-	bool success = not need.size();
-	if (not success)
-	{
-		cout << "\x1B[31;1m";
-		for (auto x : need) cout << "  " << x << '\n';
-	}
-	if (matched.size())
-	{
-		cout << "\x1B[32;1m";
-		for (auto x : matched) cout << "  " << x << '\n';
-	}
-	cout << "\x1B[m";
-	for (auto x : able) cout << "  " << x.layerName << '\n';
-	return success;
+	return hasRequiredStrings(need, able, &vk::LayerProperties::layerName);
 }
 
 template <typename T>
