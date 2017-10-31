@@ -26,7 +26,7 @@ private:
 		auto appInfo = vk::ApplicationInfo
 		(
 			"Hello, vulkan", VK_MAKE_VERSION(1, 0, 0),
-			"no engine", VK_MAKE_VERSION(1, 0, 0),
+			"Hulkan", VK_MAKE_VERSION(1, 0, 0),
 			VK_API_VERSION_1_0
 		);
 		auto ici = vk::InstanceCreateInfo

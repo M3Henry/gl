@@ -13,7 +13,6 @@ public:
 				std::vector<char const*> extensions;
 				for (unsigned int i = 0; i < extensionCount; ++i) extensions.push_back(glfwExtensions[i]);
 				return extensions;
-				//return std::make_pair(extensionCount, glfwExtensions);
 	}
 	class window {
 	public:
@@ -24,19 +23,44 @@ public:
 			GLFWwindow * share = nullptr) :
 			handle_(glfwCreateWindow(width, height, title.c_str(), monitor, share))
 		{
-		    if (not handle_) throw "No glfw window?!?";
+			if (not handle_) throw "No glfw window?!?";
+			glfwSetWindowUserPointer(handle_, this);
+			glfwSetKeyCallback(handle_, keyCallback);
+			glfwSetWindowSizeCallback(handle_, resizeCallback);
 		}
 		~window()
 		{
-			glfwDestroyWindow(handle_);
+			if (handle_) glfwDestroyWindow(handle_);
+		}
+		window(window const&) = delete;
+		window& operator =(window const&) = delete;
+		window(window&& old) :
+			handle_(old.handle_),
+			keyFunction_(old.keyFunction_),
+			resizeFunction_(old.resizeFunction_)
+		{
+			glfwSetWindowUserPointer(handle_, this);
+			old.handle_ = nullptr;
+		}
+		window& operator =(window&& old)
+		{
+			handle_ = old.handle_;
+			keyFunction_ = old.keyFunction_;
+			resizeFunction_ = old.resizeFunction_;
+			glfwSetWindowUserPointer(handle_, this);
+			old.handle_ = nullptr;
 		}
 		void makeContextCurrent()
 		{
 			glfwMakeContextCurrent(handle_);
 		}
-		void setKeyCallback(void(*func)(GLFWwindow*, int, int, int, int))
+		void setKeyCallback(void(*func)(window&, int, int, int, int))
 		{
-			glfwSetKeyCallback(handle_, func);
+			keyFunction_ = func;
+		}
+		void setResizeCallback(void(*func)(window&, int, int))
+		{
+			resizeFunction_ = func;
 		}
 		void show() const
 		{
@@ -61,7 +85,20 @@ public:
 			return vk::SurfaceKHR(surface);
 		}
 	private:
-		GLFWwindow * const handle_;
+		static void keyCallback(GLFWwindow* handle, int a, int b, int c, int d)
+		{
+			auto & window = *reinterpret_cast<glfw::window*>(glfwGetWindowUserPointer(handle));
+			if (window.keyFunction_) window.keyFunction_(window, a, b, c, d);
+		}
+		static void resizeCallback(GLFWwindow* handle, int a, int b)
+		{
+			auto & window = *reinterpret_cast<glfw::window*>(glfwGetWindowUserPointer(handle));
+			if (window.resizeFunction_) window.resizeFunction_(window, a, b);
+		}
+	private:
+		GLFWwindow * handle_;
+		void(*keyFunction_)(window&, int, int, int, int) = nullptr;
+		void(*resizeFunction_)(window&, int, int) = nullptr;
 	};
 private:
 	glfw()

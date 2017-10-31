@@ -19,8 +19,6 @@ extern uint32_t _binary_shader_frag_spv_end;
 extern uint32_t _binary_shader_frag_spv_start;
 auto fragmentObject = make_file(_binary_shader_frag_spv_start, _binary_shader_frag_spv_end);
 
-constexpr uint32_t WIDTH = 800;
-constexpr uint32_t HEIGHT = 600;
 float color = 0.f;
 int main()
 {
@@ -29,20 +27,20 @@ int main()
 	glfwWindowHint(GLFW_VISIBLE, false);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
 	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-	glfw::window mainWindow(WIDTH, HEIGHT, "Hello GLFW");
+	glfw::window mainWindow(800, 600, "Hello GLFW");
 	glfwSwapInterval(1);
 	mainWindow.makeContextCurrent();
 	mainWindow.setKeyCallback
 	(
-		[](GLFWwindow* window, int key, int scancode, int action, int mods)
+		[](glfw::window& window, int key, int scancode, int action, int mods)
 		{
 			if (action == GLFW_PRESS) {
 				std::cout << char(key);
 				std::cout.flush();
-		        switch (key) {
-		        case GLFW_KEY_ESCAPE:
-		            glfwSetWindowShouldClose(window, true);
-					return;
+					switch (key) {
+						case GLFW_KEY_ESCAPE:
+							window.shouldClose(true);
+							return;
 				case GLFW_KEY_C:
 					color = color < .5f ? 1.f : 0.f;
 					return;
@@ -52,6 +50,10 @@ int main()
 			}
 			return;
 		}
+	);
+	mainWindow.setResizeCallback
+	(
+		[](glfw::window& window, int width, int height){ std::cout << "Resizing window..." << std::endl; }
 	);
 	// vulkan
 	try
@@ -158,9 +160,28 @@ int main()
 			return physicalDevice.createDevice(dci);
 		}();
 
+		auto commandPool = logicalDevice.createCommandPool
+		({
+			vk::CommandPoolCreateFlags(),
+			queueFamily.first
+			// command pool flags
+		});
+		std::cout << "Created command pool\n";
+
 		auto graphicsQueue = logicalDevice.getQueue(queueFamily.first, 0); // 0 = queue index
 
 		auto presentationQueue = logicalDevice.getQueue(queueFamily.second, 0); // 0 = queue index
+
+		auto pipelineLayout = [&logicalDevice]()
+		{
+			auto plci = vk::PipelineLayoutCreateInfo
+			(
+				vk::PipelineLayoutCreateFlags(),
+				0, nullptr,	// layouts
+				0, nullptr	// push constant ranges
+			);
+			return logicalDevice.createPipelineLayout(plci);
+		}();
 
 		auto surfaceFormat = [&physicalDevice, &surface]() -> vk::SurfaceFormatKHR
 		{
@@ -179,6 +200,10 @@ int main()
 		}();
 		std::cout << "SurfaceFormat = " << to_string(surfaceFormat.format) << "  Colourspace = " << to_string(surfaceFormat.colorSpace) << '\n';
 
+		auto imageAvailable = logicalDevice.createSemaphore({});
+		auto renderFinished = logicalDevice.createSemaphore({});
+
+		logicalDevice.waitIdle();
 		vk::Extent2D swapExtent;
 		auto swapChain = [&swapExtent, &physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
 		{
@@ -205,14 +230,14 @@ int main()
 							capabilities.minImageExtent.width,
 							std::min(
 								capabilities.maxImageExtent.width,
-								WIDTH
+								capabilities.currentExtent.width
 							)
 						),
 						std::max(
 							capabilities.minImageExtent.height,
 							std::min(
 								capabilities.maxImageExtent.height,
-								HEIGHT
+								capabilities.currentExtent.height
 							)
 						)
 					};
@@ -275,17 +300,6 @@ int main()
 			}
 			std::cout << "Created " << imageViews.size() << " image views." << std::endl;
 			return imageViews;
-		}();
-
-		auto pipelineLayout = [&logicalDevice]()
-		{
-			auto plci = vk::PipelineLayoutCreateInfo
-			(
-				vk::PipelineLayoutCreateFlags(),
-				0, nullptr,	// layouts
-				0, nullptr	// push constant ranges
-			);
-			return logicalDevice.createPipelineLayout(plci);
 		}();
 
 		auto renderPass = [&logicalDevice, &surfaceFormat]()
@@ -475,14 +489,6 @@ int main()
 			return framebuffers;
 		}();
 
-		auto commandPool = logicalDevice.createCommandPool
-		({
-			vk::CommandPoolCreateFlags(),
-			queueFamily.first
-			// command pool flags
-		});
-		std::cout << "Created command pool\n";
-
 		auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent]()
 		{
 			auto commandBuffers = logicalDevice.allocateCommandBuffers
@@ -518,7 +524,7 @@ int main()
 					3,	// vertices
 					1,	// instances
 					0,	// vertex offset
-					0		// instance instances
+					0		// instance offset
 				);
 				b.endRenderPass();
 				b.end();
@@ -527,9 +533,6 @@ int main()
 			std::cout << "Created " << commandBuffers.size() << " command buffers\n";
 			return commandBuffers;
 		}();
-
-		auto imageAvailable = logicalDevice.createSemaphore({});
-		auto renderFinished = logicalDevice.createSemaphore({});
 
 		// loop time
 		mainWindow.show();
