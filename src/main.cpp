@@ -26,7 +26,7 @@ int main()
 
 	glfwWindowHint(GLFW_VISIBLE, false);
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-	glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+	glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 	glfw::window mainWindow(800, 600, "Hello GLFW");
 	glfwSwapInterval(1);
 	mainWindow.makeContextCurrent();
@@ -51,64 +51,14 @@ int main()
 			return;
 		}
 	);
-	mainWindow.setResizeCallback
-	(
-		[](glfw::window& window, int width, int height){ std::cout << "Resizing window..." << std::endl; }
-	);
 	// vulkan
 	try
 	{
-		auto& instance = vulkan::instance();
+		auto& instance = hulkan::instance();
 
 		auto surface = mainWindow.createSurface(instance);
 
-		auto physicalDevice = [&instance, &surface]()
-		{
-			auto devices = instance.enumeratePhysicalDevices();
-			std::cout << "Found " << devices.size() << " physical devices." << std::endl;
-			for (auto it = devices.begin(); it != devices.end();)
-			{
-				auto & d = *it;
-				bool failed = false;
-				{
-					auto properties = d.getProperties();
-					failed |= properties.deviceType != vk::PhysicalDeviceType::eDiscreteGpu;
-
-					auto features = d.getFeatures();
-					failed |= not features.geometryShader;
-
-					std::cout << "    deviceType = " << to_string(properties.deviceType) << ",   geometryShader = " << (bool)features.geometryShader << '\n';
-				}
-				{
-					std::vector<char const*> required =
-					{
-						VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-					};
-					failed |= not hasRequiredExtensions(required, d.enumerateDeviceExtensionProperties() );
-				}
-				if (failed)
-				{
-					it = devices.erase(it);
-					continue;
-				}
-
-				auto surfaceFormats = d.getSurfaceFormatsKHR(surface);
-				failed |= surfaceFormats.empty();
-				auto surfacePresentModes = d.getSurfacePresentModesKHR(surface);
-				failed |= surfacePresentModes.empty();
-				std::cout << "    # surfaceFormats = " << surfaceFormats.size() << "  # surfacePresentModes = " << surfacePresentModes.size() << '\n';
-				if (failed)
-				{
-					it = devices.erase(it);
-				} else
-				{
-					++it;
-				}
-			}
-			std::cout << std::endl;
-			if (devices.size()) return devices.front();
-			throw std::runtime_error("No suitable physical devices found!");
-		}();
+		auto physicalDevice = hulkan::initialisePhysicalDevice(surface);
 
 		auto queueFamily = [&physicalDevice, &surface]()
 		{
@@ -203,371 +153,381 @@ int main()
 		auto imageAvailable = logicalDevice.createSemaphore({});
 		auto renderFinished = logicalDevice.createSemaphore({});
 
-		logicalDevice.waitIdle();
-		vk::Extent2D swapExtent;
-		auto swapChain = [&swapExtent, &physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
+		vk::SwapchainKHR swapChain;
+		do
 		{
-			auto presentationMode = [&physicalDevice, &surface]()
+			vk::Extent2D swapExtent;
+			swapChain = [&swapChain, &swapExtent, &physicalDevice, &logicalDevice, &surface, &surfaceFormat, &queueFamily]()
 			{
-				std::cout << "Available presentation modes:\n";
-				auto availableModes = physicalDevice.getSurfacePresentModesKHR(surface);
-				for (auto & m : availableModes)
+				auto presentationMode = [&physicalDevice, &surface]()
 				{
-					std::cout << "    " << to_string(m) << '\n';
-				}
-				return vk::PresentModeKHR::eFifo;
+					std::cout << "Available presentation modes:\n";
+					auto availableModes = physicalDevice.getSurfacePresentModesKHR(surface);
+					for (auto & m : availableModes)
+					{
+						std::cout << "    " << to_string(m) << '\n';
+					}
+					return vk::PresentModeKHR::eFifo;
+				}();
+
+				auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+
+				swapExtent = [&swapExtent, &capabilities]() -> vk::Extent2D
+				{
+					if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+				        return capabilities.currentExtent;
+				    } else {
+						return {
+							std::max(
+								capabilities.minImageExtent.width,
+								std::min(
+									capabilities.maxImageExtent.width,
+									capabilities.currentExtent.width
+								)
+							),
+							std::max(
+								capabilities.minImageExtent.height,
+								std::min(
+									capabilities.maxImageExtent.height,
+									capabilities.currentExtent.height
+								)
+							)
+						};
+					}
+				}();
+
+				auto swapDepth = capabilities.minImageCount;
+				if (0 == swapDepth) swapDepth = 2;
+				std::cout << "Selected swap extent = " << swapExtent.width << 'x' << swapExtent.height << " : " << swapDepth << '\n';
+
+				auto exclusiveMode = queueFamily.first == queueFamily.second;
+				if (not exclusiveMode) throw std::runtime_error("Concurrent mode unsupported atm.");
+				std::vector<uint32_t> queueFamilyArray = {queueFamily.first, queueFamily.second};
+
+				auto newSwapChain = logicalDevice.createSwapchainKHR
+				({
+					vk::SwapchainCreateFlagsKHR(),
+					surface,
+					swapDepth,
+					surfaceFormat.format, surfaceFormat.colorSpace,
+					swapExtent,
+					1, // image layers higher for stereoscopic
+					vk::ImageUsageFlagBits::eColorAttachment,
+					exclusiveMode ? vk::SharingMode::eExclusive : vk::SharingMode::eConcurrent,
+					queueFamilyArray.size(),
+					queueFamilyArray.data(),
+					capabilities.currentTransform,
+					vk::CompositeAlphaFlagBitsKHR::eOpaque,
+					presentationMode,
+					true,
+					swapChain
+				});
+				logicalDevice.destroySwapchainKHR(swapChain);
+				return newSwapChain;
 			}();
 
-			auto capabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
+			auto swapImages = logicalDevice.getSwapchainImagesKHR(swapChain);
+			std::cout << "Created swap chain with length " << swapImages.size() << '\n';
 
-			swapExtent = [&swapExtent, &capabilities]() -> vk::Extent2D
+			auto imageViews = [&logicalDevice, &swapImages, &surfaceFormat]()
 			{
-				if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-			        return capabilities.currentExtent;
-			    } else {
-					return {
-						std::max(
-							capabilities.minImageExtent.width,
-							std::min(
-								capabilities.maxImageExtent.width,
-								capabilities.currentExtent.width
-							)
-						),
-						std::max(
-							capabilities.minImageExtent.height,
-							std::min(
-								capabilities.maxImageExtent.height,
-								capabilities.currentExtent.height
-							)
-						)
-					};
-				}
-			}();
-
-			auto swapDepth = capabilities.minImageCount;
-			if (0 == swapDepth) swapDepth = 2;
-			std::cout << "Selected swap extent = " << swapExtent.width << 'x' << swapExtent.height << " : " << swapDepth << '\n';
-
-			auto exclusiveMode = queueFamily.first == queueFamily.second;
-			if (not exclusiveMode) throw std::runtime_error("Concurrent mode unsupported atm.");
-			std::vector<uint32_t> queueFamilyArray = {queueFamily.first, queueFamily.second};
-
-			auto scci = vk::SwapchainCreateInfoKHR
-			(
-				vk::SwapchainCreateFlagsKHR(),
-				surface,
-				swapDepth,
-				surfaceFormat.format, surfaceFormat.colorSpace,
-				swapExtent,
-				1, // image layers higher for stereoscopic
-				vk::ImageUsageFlagBits::eColorAttachment,
-				exclusiveMode ? vk::SharingMode::eExclusive : vk::SharingMode::eConcurrent,
-				queueFamilyArray.size(),
-				queueFamilyArray.data(),
-				capabilities.currentTransform,
-				vk::CompositeAlphaFlagBitsKHR::eOpaque,
-				presentationMode,
-				true,
-				vk::SwapchainKHR()
-			);
-
-			return logicalDevice.createSwapchainKHR(scci);
-		}();
-
-		auto swapImages = logicalDevice.getSwapchainImagesKHR(swapChain);
-		std::cout << "Created swap chain with length " << swapImages.size() << '\n';
-
-		auto imageViews = [&logicalDevice, &swapImages, &surfaceFormat]()
-		{
-			std::vector<vk::ImageView> imageViews;
-			for (auto & i : swapImages)
-			{
-				auto ivci = vk::ImageViewCreateInfo
-				(
-					vk::ImageViewCreateFlags(),
-					i,
-					vk::ImageViewType::e2D,
-					surfaceFormat.format,
-					vk::ComponentMapping(),
-					vk::ImageSubresourceRange
+				std::vector<vk::ImageView> imageViews;
+				for (auto & i : swapImages)
+				{
+					auto ivci = vk::ImageViewCreateInfo
 					(
-						vk::ImageAspectFlagBits::eColor,
-						0,1, 	// mipmap levels
-						0,1		// array layers (higher for stereographic)
+						vk::ImageViewCreateFlags(),
+						i,
+						vk::ImageViewType::e2D,
+						surfaceFormat.format,
+						vk::ComponentMapping(),
+						vk::ImageSubresourceRange
+						(
+							vk::ImageAspectFlagBits::eColor,
+							0,1, 	// mipmap levels
+							0,1		// array layers (higher for stereographic)
+						)
+					);
+					imageViews.push_back(logicalDevice.createImageView(ivci));
+				}
+				std::cout << "Created " << imageViews.size() << " image views." << std::endl;
+				return imageViews;
+			}();
+
+			auto renderPass = [&logicalDevice, &surfaceFormat]()
+			{
+				auto colourAttachment = vk::AttachmentDescription
+				(
+					vk::AttachmentDescriptionFlags(),
+					surfaceFormat.format,
+					vk::SampleCountFlagBits::e1,
+					vk::AttachmentLoadOp::eClear,	// render data
+					vk::AttachmentStoreOp::eStore,
+					vk::AttachmentLoadOp::eDontCare,	// stencil data
+					vk::AttachmentStoreOp::eDontCare,
+					vk::ImageLayout::eUndefined,
+					vk::ImageLayout::ePresentSrcKHR
+				);
+				auto colourAttachmentRef = vk::AttachmentReference(0, vk::ImageLayout::eColorAttachmentOptimal);
+
+				auto subpass = vk::SubpassDescription
+				(
+					vk::SubpassDescriptionFlags(),
+					vk::PipelineBindPoint::eGraphics,
+					0, nullptr,	// input
+					1, &colourAttachmentRef // color
+					// etc
+				);
+				auto dependency = vk::SubpassDependency
+				(
+					VK_SUBPASS_EXTERNAL, 0,
+					vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput,
+					vk::AccessFlags(), vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite
+				);
+				auto rpci = vk::RenderPassCreateInfo
+				(
+					vk::RenderPassCreateFlags(),
+					1, &colourAttachment,
+					1, &subpass,
+					1, &dependency // dependencies
+				);
+				return logicalDevice.createRenderPass(rpci);
+			}();
+
+			auto graphicsPipeline = [&pipelineLayout, &renderPass, &logicalDevice, &swapExtent]()
+			{
+				auto objReader = [&logicalDevice](std::pair<size_t, uint32_t*> code)
+				{
+					std::cout << "Reading " << code.first << " bytes from " << code.second << std::endl;
+					auto smci = vk::ShaderModuleCreateInfo
+					(
+						vk::ShaderModuleCreateFlags(),
+						code.first,	code.second
+					);
+					return logicalDevice.createShaderModule(smci);
+					//return buffer;
+				};
+				auto vertShaderCode = objReader(::vertexObject);
+				auto fragShaderCode = objReader(::fragmentObject);
+				std::vector<vk::PipelineShaderStageCreateInfo> stages;
+				stages.emplace_back
+				(
+					vk::PipelineShaderStageCreateFlags(),
+					vk::ShaderStageFlagBits::eVertex,
+					vertShaderCode,
+					"main",
+					nullptr	// specialization info (for constants)
+				);
+				stages.emplace_back
+				(
+					vk::PipelineShaderStageCreateFlags(),
+					vk::ShaderStageFlagBits::eFragment,
+					fragShaderCode,
+					"main",
+					nullptr	// specialization info (for constants)
+				);
+				auto pvisci = vk::PipelineVertexInputStateCreateInfo
+				(
+					vk::PipelineVertexInputStateCreateFlags(),
+					0, nullptr,
+					0, nullptr
+				);
+				auto piasci = vk::PipelineInputAssemblyStateCreateInfo
+				(
+					vk::PipelineInputAssemblyStateCreateFlags(),
+					vk::PrimitiveTopology::eTriangleList,
+					false
+				);
+				auto viewport = vk::Viewport
+				(
+					0.f, 0.f,	// xy centre
+					swapExtent.width, swapExtent.height,
+					0.f, 1.f	// z extent
+				);
+				auto scissor = vk::Rect2D({0, 0}, swapExtent);
+
+				auto pvsci= vk::PipelineViewportStateCreateInfo
+				(
+					vk::PipelineViewportStateCreateFlags(),
+					1, &viewport,
+					1, &scissor
+				);
+				auto rasterizer = vk::PipelineRasterizationStateCreateInfo
+				(
+					vk::PipelineRasterizationStateCreateFlags(),
+					false,	// depth clamp
+					false,	// discard all
+					vk::PolygonMode::eFill,
+					vk::CullModeFlagBits::eBack,
+					vk::FrontFace::eClockwise,
+					false, 0.f, 0.f, 0.f,	// depth bias
+					1.f	// line width
+				);
+				auto multisampler = vk::PipelineMultisampleStateCreateInfo
+				(
+					vk::PipelineMultisampleStateCreateFlags(),
+					vk::SampleCountFlagBits::e1,
+					false,	// enable
+					1.f,	// min sample shading
+					nullptr,// sample mask
+					false,	// alpha to coverage
+					false	// alpha to one
+				);
+				auto depthStencil = vk::PipelineDepthStencilStateCreateInfo
+				();
+				auto colourBlendAttachment = vk::PipelineColorBlendAttachmentState
+				(
+					false, // enable
+					vk::BlendFactor::eOne,	// colour
+					vk::BlendFactor::eZero,
+					vk::BlendOp::eAdd,
+					vk::BlendFactor::eOne,	// alpha
+					vk::BlendFactor::eZero,
+					vk::BlendOp::eAdd,
+					(
+						vk::ColorComponentFlagBits::eR
+						| vk::ColorComponentFlagBits::eG
+						| vk::ColorComponentFlagBits::eB
+						| vk::ColorComponentFlagBits::eA
 					)
 				);
-				imageViews.push_back(logicalDevice.createImageView(ivci));
-			}
-			std::cout << "Created " << imageViews.size() << " image views." << std::endl;
-			return imageViews;
-		}();
-
-		auto renderPass = [&logicalDevice, &surfaceFormat]()
-		{
-			auto colourAttachment = vk::AttachmentDescription
-			(
-				vk::AttachmentDescriptionFlags(),
-				surfaceFormat.format,
-				vk::SampleCountFlagBits::e1,
-				vk::AttachmentLoadOp::eClear,	// render data
-				vk::AttachmentStoreOp::eStore,
-				vk::AttachmentLoadOp::eDontCare,	// stencil data
-				vk::AttachmentStoreOp::eDontCare,
-				vk::ImageLayout::eUndefined,
-				vk::ImageLayout::ePresentSrcKHR
-			);
-			auto colourAttachmentRef = vk::AttachmentReference(0, vk::ImageLayout::eColorAttachmentOptimal);
-
-			auto subpass = vk::SubpassDescription
-			(
-				vk::SubpassDescriptionFlags(),
-				vk::PipelineBindPoint::eGraphics,
-				0, nullptr,	// input
-				1, &colourAttachmentRef // color
-				// etc
-			);
-			auto dependency = vk::SubpassDependency
-			(
-				VK_SUBPASS_EXTERNAL, 0,
-				vk::PipelineStageFlagBits::eColorAttachmentOutput, vk::PipelineStageFlagBits::eColorAttachmentOutput,
-				vk::AccessFlags(), vk::AccessFlagBits::eColorAttachmentRead | vk::AccessFlagBits::eColorAttachmentWrite
-			);
-			auto rpci = vk::RenderPassCreateInfo
-			(
-				vk::RenderPassCreateFlags(),
-				1, &colourAttachment,
-				1, &subpass,
-				1, &dependency // dependencies
-			);
-			return logicalDevice.createRenderPass(rpci);
-		}();
-
-		auto graphicsPipeline = [&pipelineLayout, &renderPass, &logicalDevice, &swapExtent]()
-		{
-			auto objReader = [&logicalDevice](std::pair<size_t, uint32_t*> code)
-			{
-				std::cout << "Reading " << code.first << " bytes from " << code.second << std::endl;
-				auto smci = vk::ShaderModuleCreateInfo
+				auto colourBlending = vk::PipelineColorBlendStateCreateInfo
 				(
-					vk::ShaderModuleCreateFlags(),
-					code.first,	code.second
+					vk::PipelineColorBlendStateCreateFlags(),
+					false,	// logic operations
+					vk::LogicOp::eCopy,
+					1, &colourBlendAttachment,
+					{0, 0, 0, 0} // blend constants
 				);
-				return logicalDevice.createShaderModule(smci);
-				//return buffer;
-			};
-			auto vertShaderCode = objReader(::vertexObject);
-			auto fragShaderCode = objReader(::fragmentObject);
-			std::vector<vk::PipelineShaderStageCreateInfo> stages;
-			stages.emplace_back
-			(
-				vk::PipelineShaderStageCreateFlags(),
-				vk::ShaderStageFlagBits::eVertex,
-				vertShaderCode,
-				"main",
-				nullptr	// specialization info (for constants)
-			);
-			stages.emplace_back
-			(
-				vk::PipelineShaderStageCreateFlags(),
-				vk::ShaderStageFlagBits::eFragment,
-				fragShaderCode,
-				"main",
-				nullptr	// specialization info (for constants)
-			);
-			auto pvisci = vk::PipelineVertexInputStateCreateInfo
-			(
-				vk::PipelineVertexInputStateCreateFlags(),
-				0, nullptr,
-				0, nullptr
-			);
-			auto piasci = vk::PipelineInputAssemblyStateCreateInfo
-			(
-				vk::PipelineInputAssemblyStateCreateFlags(),
-				vk::PrimitiveTopology::eTriangleList,
-				false
-			);
-			auto viewport = vk::Viewport
-			(
-				0.f, 0.f,	// xy centre
-				swapExtent.width, swapExtent.height,
-				0.f, 1.f	// z extent
-			);
-			auto scissor = vk::Rect2D({0, 0}, swapExtent);
-
-			auto pvsci= vk::PipelineViewportStateCreateInfo
-			(
-				vk::PipelineViewportStateCreateFlags(),
-				1, &viewport,
-				1, &scissor
-			);
-			auto rasterizer = vk::PipelineRasterizationStateCreateInfo
-			(
-				vk::PipelineRasterizationStateCreateFlags(),
-				false,	// depth clamp
-				false,	// discard all
-				vk::PolygonMode::eFill,
-				vk::CullModeFlagBits::eBack,
-				vk::FrontFace::eClockwise,
-				false, 0.f, 0.f, 0.f,	// depth bias
-				1.f	// line width
-			);
-			auto multisampler = vk::PipelineMultisampleStateCreateInfo
-			(
-				vk::PipelineMultisampleStateCreateFlags(),
-				vk::SampleCountFlagBits::e1,
-				false,	// enable
-				1.f,	// min sample shading
-				nullptr,// sample mask
-				false,	// alpha to coverage
-				false	// alpha to one
-			);
-			auto depthStencil = vk::PipelineDepthStencilStateCreateInfo
-			();
-			auto colourBlendAttachment = vk::PipelineColorBlendAttachmentState
-			(
-				false, // enable
-				vk::BlendFactor::eOne,	// colour
-				vk::BlendFactor::eZero,
-				vk::BlendOp::eAdd,
-				vk::BlendFactor::eOne,	// alpha
-				vk::BlendFactor::eZero,
-				vk::BlendOp::eAdd,
+				auto dynamicState = vk::PipelineDynamicStateCreateInfo
+				();
+				auto gpci = vk::GraphicsPipelineCreateInfo
 				(
-					vk::ColorComponentFlagBits::eR
-					| vk::ColorComponentFlagBits::eG
-					| vk::ColorComponentFlagBits::eB
-					| vk::ColorComponentFlagBits::eA
-				)
-			);
-			auto colourBlending = vk::PipelineColorBlendStateCreateInfo
-			(
-				vk::PipelineColorBlendStateCreateFlags(),
-				false,	// logic operations
-				vk::LogicOp::eCopy,
-				1, &colourBlendAttachment,
-				{0, 0, 0, 0} // blend constants
-			);
-			auto dynamicState = vk::PipelineDynamicStateCreateInfo
-			();
-			auto gpci = vk::GraphicsPipelineCreateInfo
-			(
-				vk::PipelineCreateFlags(),
-				2, stages.data(),
-				&pvisci,
-				&piasci,
-				nullptr,	// assembly state
-				&pvsci,
-				&rasterizer,
-				&multisampler,
-				nullptr,	//&depthStencil,
-				&colourBlending,
-				nullptr,	//&dynamicState,
-				pipelineLayout,
-				renderPass,
-				0,	// subpass
-				vk::Pipeline(), -1 // base pipeline
-			);
-			return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
-		}();
-		std::cout << "Created graphics pipeline\n";
-
-		auto framebuffers = [&imageViews, &logicalDevice, &renderPass, &swapExtent]()
-		{
-			std::vector<vk::Framebuffer> framebuffers;
-			for (auto & v : imageViews)	framebuffers.push_back
-			(
-				logicalDevice.createFramebuffer
-				({
-					vk::FramebufferCreateFlags(),
+					vk::PipelineCreateFlags(),
+					2, stages.data(),
+					&pvisci,
+					&piasci,
+					nullptr,	// assembly state
+					&pvsci,
+					&rasterizer,
+					&multisampler,
+					nullptr,	//&depthStencil,
+					&colourBlending,
+					nullptr,	//&dynamicState,
+					pipelineLayout,
 					renderPass,
-					1, &v,
-					swapExtent.width, swapExtent.height,
-					1	// layers
-				})
-			);
-			std::cout << "Created " << framebuffers.size() << " framebuffers\n";
-			return framebuffers;
-		}();
+					0,	// subpass
+					vk::Pipeline(), -1 // base pipeline
+				);
+				return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
+			}();
+			std::cout << "Created graphics pipeline\n";
 
-		auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent]()
-		{
-			auto commandBuffers = logicalDevice.allocateCommandBuffers
-			({
-				commandPool,
-				vk::CommandBufferLevel::ePrimary,
-				framebuffers.size()
-			});
-			auto f = framebuffers.begin();
-			for (auto & b : commandBuffers)
+			auto framebuffers = [&imageViews, &logicalDevice, &renderPass, &swapExtent]()
 			{
-				b.begin
-				({
-					vk::CommandBufferUsageFlagBits::eSimultaneousUse,
-					nullptr //	inheritance info
-				});
-				constexpr std::array<float,4> clearValues = {0.f, 0.f, 0.f, 1.f};
-				auto c = vk::ClearColorValue(clearValues);
-				auto cc = vk::ClearValue(c);
-				b.beginRenderPass
+				std::vector<vk::Framebuffer> framebuffers;
+				for (auto & v : imageViews)	framebuffers.push_back
 				(
-					{
+					logicalDevice.createFramebuffer
+					({
+						vk::FramebufferCreateFlags(),
 						renderPass,
-						*f,
-						vk::Rect2D({0, 0}, swapExtent),
-						1, &cc
-					},
-					vk::SubpassContents::eInline
+						1, &v,
+						swapExtent.width, swapExtent.height,
+						1	// layers
+					})
 				);
-				b.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
-				b.draw
-				(
-					3,	// vertices
-					1,	// instances
-					0,	// vertex offset
-					0		// instance offset
-				);
-				b.endRenderPass();
-				b.end();
-				++f;
-			}
-			std::cout << "Created " << commandBuffers.size() << " command buffers\n";
-			return commandBuffers;
-		}();
+				std::cout << "Created " << framebuffers.size() << " framebuffers\n";
+				return framebuffers;
+			}();
 
-		// loop time
-		mainWindow.show();
-		std::cout << "\x1B[32;1mEVERYTHING SET UP, LET'S GO!!!\x1B[m" << std::endl;
-		while(not mainWindow.shouldClose())
-		{
-			uint32_t imageIndex;
-			logicalDevice.acquireNextImageKHR
-			(
-				swapChain,
-				std::numeric_limits<uint64_t>::max(),
-				imageAvailable,
-				vk::Fence(),
-				&imageIndex
-			);
-			vk::PipelineStageFlags destStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-			auto si = vk::SubmitInfo
-			(
-				1, &imageAvailable, &destStageMask,
-				1, &commandBuffers[imageIndex],
-				1, &renderFinished
-			);
-			graphicsQueue.submit(1, &si, vk::Fence() );
-			presentationQueue.presentKHR
-			({
-				1, &renderFinished,
-				1, &swapChain,
-				&imageIndex,
-				nullptr
-			});
-			//mainWindow.swapBuffers();
-			::usleep(100000);
-			glfwWaitEvents();
-		}
-		logicalDevice.waitIdle();
+			auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent]()
+			{
+				auto commandBuffers = logicalDevice.allocateCommandBuffers
+				({
+					commandPool,
+					vk::CommandBufferLevel::ePrimary,
+					framebuffers.size()
+				});
+				auto f = framebuffers.begin();
+				for (auto & b : commandBuffers)
+				{
+					b.begin
+					({
+						vk::CommandBufferUsageFlagBits::eSimultaneousUse,
+						nullptr //	inheritance info
+					});
+					constexpr std::array<float,4> clearValues = {0.f, 0.f, 0.f, 1.f};
+					auto c = vk::ClearColorValue(clearValues);
+					auto cc = vk::ClearValue(c);
+					b.beginRenderPass
+					(
+						{
+							renderPass,
+							*f,
+							vk::Rect2D({0, 0}, swapExtent),
+							1, &cc
+						},
+						vk::SubpassContents::eInline
+					);
+					b.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
+					b.draw
+					(
+						3,	// vertices
+						1,	// instances
+						0,	// vertex offset
+						0		// instance offset
+					);
+					b.endRenderPass();
+					b.end();
+					++f;
+				}
+				std::cout << "Created " << commandBuffers.size() << " command buffers\n";
+				return commandBuffers;
+			}();
+
+			// loop time
+			mainWindow.show();
+			std::cout << "\x1B[32;1mEVERYTHING SET UP, LET'S GO!!!\x1B[m" << std::endl;
+			while (not mainWindow.shouldClose())
+			{
+				uint32_t imageIndex;
+				logicalDevice.acquireNextImageKHR
+				(
+					swapChain,
+					std::numeric_limits<uint64_t>::max(),
+					imageAvailable,
+					vk::Fence(),
+					&imageIndex
+				);
+
+				vk::PipelineStageFlags destStageMask = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+				auto si = vk::SubmitInfo
+				(
+					1, &imageAvailable, &destStageMask,
+					1, &commandBuffers[imageIndex],
+					1, &renderFinished
+				);
+				graphicsQueue.submit(1, &si, vk::Fence() );
+				try {
+					presentationQueue.presentKHR
+					({
+						1, &renderFinished,
+						1, &swapChain,
+						&imageIndex,
+						nullptr
+					});
+				} catch (vk::OutOfDateKHRError& e)
+				{
+					std::cout << "\x1B[33;1m" << e.what() << "\x1B[m" << std::endl;
+					break;
+				}
+				//mainWindow.swapBuffers();
+				::usleep(100000);
+				glfwWaitEvents();
+			}
+			logicalDevice.waitIdle();
+		} while (not mainWindow.shouldClose());
 		// end
 	}
 	catch (std::exception &exception)

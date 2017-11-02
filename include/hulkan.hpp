@@ -2,14 +2,60 @@
 #include "glfw.hpp"
 #include "utils.hpp"
 
-class vulkan {
+class hulkan {
 public:
 	static auto& instance()
 	{
 		return singleton.instance_;
 	}
+	static auto initialisePhysicalDevice(vk::SurfaceKHR & surface)
+	{
+		auto devices = instance().enumeratePhysicalDevices();
+		std::cout << "Found " << devices.size() << " physical devices." << std::endl;
+		for (auto it = devices.begin(); it != devices.end();)
+		{
+			auto & d = *it;
+			bool failed = false;
+			{
+				auto properties = d.getProperties();
+				failed |= properties.deviceType != vk::PhysicalDeviceType::eDiscreteGpu;
+
+				auto features = d.getFeatures();
+				failed |= not features.geometryShader;
+
+				std::cout << "    deviceType = " << to_string(properties.deviceType) << ",   geometryShader = " << (bool)features.geometryShader << '\n';
+			}
+			{
+				std::vector<char const*> required =
+				{
+					VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+				};
+				failed |= not hasRequiredExtensions(required, d.enumerateDeviceExtensionProperties() );
+			}
+			if (failed)
+			{
+				it = devices.erase(it);
+				continue;
+			}
+			auto surfaceFormats = d.getSurfaceFormatsKHR(surface);
+			failed |= surfaceFormats.empty();
+			auto surfacePresentModes = d.getSurfacePresentModesKHR(surface);
+			failed |= surfacePresentModes.empty();
+			std::cout << "    # surfaceFormats = " << surfaceFormats.size() << "  # surfacePresentModes = " << surfacePresentModes.size() << '\n';
+			if (failed)
+			{
+				it = devices.erase(it);
+			} else
+			{
+				++it;
+			}
+		}
+		std::cout << std::endl;
+		if (devices.size()) return devices.front();
+		throw std::runtime_error("No suitable physical devices found!");
+	}
 private:
-	auto createInfo()
+	auto initialiseInstance()
 	{
 		auto requiredExtensions = glfw::requiredVulkanExtensions();
 		{
@@ -36,15 +82,15 @@ private:
 			requiredLayers.size(), requiredLayers.data(),
 			requiredExtensions.size(), requiredExtensions.data()
 		);
-
-		return createInstance(ici);
+		return vk::createInstance(ici);
 	}
-	vulkan() : instance_(createInfo())
+	hulkan() :
+		instance_(initialiseInstance())
 	{}
-	~vulkan()
+	~hulkan()
 	{}
-	static vulkan singleton;
+	static hulkan singleton;
 	vk::Instance instance_;
 };
 
-vulkan vulkan::singleton;
+hulkan hulkan::singleton;

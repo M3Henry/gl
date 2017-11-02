@@ -14,14 +14,17 @@ public:
 				for (unsigned int i = 0; i < extensionCount; ++i) extensions.push_back(glfwExtensions[i]);
 				return extensions;
 	}
-	class window {
+	class window
+	{
 	public:
-		window(
+		window
+		(
 			int width, int height,
 			const std::string& title,
 			GLFWmonitor * monitor = nullptr,
 			GLFWwindow * share = nullptr) :
-			handle_(glfwCreateWindow(width, height, title.c_str(), monitor, share))
+			handle_(glfwCreateWindow(width, height, title.c_str(), monitor, share)
+		)
 		{
 			if (not handle_) throw "No glfw window?!?";
 			glfwSetWindowUserPointer(handle_, this);
@@ -49,6 +52,7 @@ public:
 			resizeFunction_ = old.resizeFunction_;
 			glfwSetWindowUserPointer(handle_, this);
 			old.handle_ = nullptr;
+			return *this;
 		}
 		void makeContextCurrent()
 		{
