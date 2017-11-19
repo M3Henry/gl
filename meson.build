@@ -6,8 +6,9 @@ project(
 inc_dirs = include_directories(['include', '/usr/include'])
 sources = ['src/main.cpp']
 
-VULKdep = dependency('vulkan', version : '>=1.0.42')
+VULKdep = dependency('vulkan', version : '>=1.0.0')
 GLFWdep = dependency('glfw3', version : '>=3.2.0')
+GLMdep = dependency('glm', version : '>=0.9.0')
 
 glslang = find_program('glslangValidator')
 

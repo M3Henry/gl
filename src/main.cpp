@@ -9,7 +9,43 @@
 #include <fstream>
 #include <cstddef>
 #include <array>
+#include <bitset>
+#include <glm/glm.hpp>
 
+struct vertex_t
+{
+	glm::vec2 pos;
+	glm::vec3 col;
+
+	const static vk::VertexInputBindingDescription bindings;
+	const static std::vector<vk::VertexInputAttributeDescription> attributes;
+};
+
+const vk::VertexInputBindingDescription vertex_t::bindings
+(
+	0,
+	sizeof(vertex_t),
+	vk::VertexInputRate::eVertex
+);
+
+const std::vector<vk::VertexInputAttributeDescription> vertex_t::attributes =
+{
+	{0, 0, vk::Format::eR32G32Sfloat, offsetof(vertex_t, pos)},
+	{1, 0, vk::Format::eR32G32B32Sfloat, offsetof(vertex_t, col)}
+};
+
+const std::vector<vertex_t> vertices =
+{
+	{{ 0.0f,-0.5f}, {1.0f, 0.0f, 0.0f}},
+	{{ 0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{-0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}},
+    
+	{{ 0.0f, 1.0f}, {1.0f, 0.0f, 0.0f}},
+	{{-0.5f, 0.5f}, {0.0f, 1.0f, 0.0f}},
+	{{ 0.5f, 0.5f}, {1.0f, 0.0f, 1.0f}}
+};
+
+// PROGRAM
 
 extern uint32_t _binary_shader_vert_spv_end;
 extern uint32_t _binary_shader_vert_spv_start;
@@ -293,7 +329,8 @@ int main()
 				);
 				return logicalDevice.createRenderPass(rpci);
 			}();
-
+            std::cout << "Created render pass" << std::endl;
+            
 			auto graphicsPipeline = [&pipelineLayout, &renderPass, &logicalDevice, &swapExtent]()
 			{
 				auto objReader = [&logicalDevice](std::pair<size_t, uint32_t*> code)
@@ -329,8 +366,8 @@ int main()
 				auto pvisci = vk::PipelineVertexInputStateCreateInfo
 				(
 					vk::PipelineVertexInputStateCreateFlags(),
-					0, nullptr,
-					0, nullptr
+					1, &::vertex_t::bindings,
+					::vertex_t::attributes.size(), ::vertex_t::attributes.data()
 				);
 				auto piasci = vk::PipelineInputAssemblyStateCreateInfo
 				(
@@ -421,7 +458,7 @@ int main()
 				);
 				return logicalDevice.createGraphicsPipeline(vk::PipelineCache(), gpci);
 			}();
-			std::cout << "Created graphics pipeline\n";
+			std::cout << "Created graphics pipeline" << std::endl;
 
 			auto framebuffers = [&imageViews, &logicalDevice, &renderPass, &swapExtent]()
 			{
@@ -441,7 +478,55 @@ int main()
 				return framebuffers;
 			}();
 
-			auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent]()
+			auto vertexBuffer = [&physicalDevice, &logicalDevice]()
+			{
+                auto bci = vk::BufferCreateInfo
+                (
+					vk::BufferCreateFlags(),
+					sizeof(vertex_t) * vertices.size(),
+					vk::BufferUsageFlagBits::eVertexBuffer,
+					vk::SharingMode::eExclusive,
+					0, nullptr
+				);
+				auto buffer = logicalDevice.createBuffer(bci);
+                
+                auto requirements = logicalDevice.getBufferMemoryRequirements(buffer);
+                
+                auto memoryTypeIndex = [&physicalDevice, &requirements, &buffer](vk::MemoryPropertyFlags propertyMask)
+                {
+                    std::bitset<32>requirementFlags(requirements.memoryTypeBits);
+                    auto properties = physicalDevice.getMemoryProperties();
+                    for (uint32_t i = 0; i < properties.memoryTypeCount; ++i) {
+                        if (requirementFlags[i])
+                        {
+                            auto flags = properties.memoryTypes[i].propertyFlags;
+                            if ((flags & propertyMask) == propertyMask)
+                            {   // only if propertyMask is entirely contained in the flags
+                                std::cout << "Found suitible memory type: " << i << ' ' << to_string(flags) << std::endl;
+                                return i;
+                            }
+                        }
+                    }
+                    throw std::runtime_error("Failed to find suitable memory type");
+                }(vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent);
+                
+                auto mai = vk::MemoryAllocateInfo
+                (
+                    requirements.size,
+                    memoryTypeIndex
+                );
+                auto bufferMemory = logicalDevice.allocateMemory(mai);
+                
+                logicalDevice.bindBufferMemory(buffer, bufferMemory, 0); // 0 = offset
+                
+                auto memPtr = logicalDevice.mapMemory(bufferMemory, 0, bci.size, vk::MemoryMapFlags() );
+                ::memcpy(memPtr, vertices.data(), bci.size);
+                logicalDevice.unmapMemory(bufferMemory);
+                
+				return buffer;
+			}();
+            
+			auto commandBuffers = [&logicalDevice, &graphicsPipeline, &commandPool, &framebuffers, &renderPass, &swapExtent, &vertexBuffer]()
 			{
 				auto commandBuffers = logicalDevice.allocateCommandBuffers
 				({
@@ -471,12 +556,19 @@ int main()
 						vk::SubpassContents::eInline
 					);
 					b.bindPipeline(vk::PipelineBindPoint::eGraphics, graphicsPipeline);
+                    vk::DeviceSize offset(0);
+                    b.bindVertexBuffers
+                    (
+                        0, 1,
+                        &vertexBuffer,
+                        &offset
+                    );
 					b.draw
 					(
-						3,	// vertices
+						vertices.size(),	// vertices
 						1,	// instances
 						0,	// vertex offset
-						0		// instance offset
+						0	// instance offset
 					);
 					b.endRenderPass();
 					b.end();
