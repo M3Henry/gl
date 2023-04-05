@@ -1,7 +1,7 @@
 project(
 	'gl',
 	'cpp',
-	default_options: ['cpp_std=c++1z'])
+	default_options: ['cpp_std=c++20'])
 
 inc_dirs = include_directories(['include', '/usr/include'])
 sources = ['src/main.cpp']
@@ -37,7 +37,9 @@ exe = executable(
 	shaders,
 	sources: sources,
 	include_directories: inc_dirs,
-	dependencies: [GLFWdep, VULKdep])
+	dependencies: [GLFWdep, VULKdep],
+	cpp_args: '-fsanitize=undefined,address',
+	link_args: '-fsanitize=undefined,address')
 
 run_target('exec',
 	command: exe)

@@ -2,7 +2,7 @@
 #include "vulkan/vulkan.hpp"
 
 template<typename T>
-bool hasRequiredStrings(std::vector<char const*> need, std::vector<T> able, char(T::* name)[256])
+bool hasRequiredStrings(std::vector<char const*> need, std::vector<T> able, vk::ArrayWrapper1D<char, 256>(T::* name))
 {
 	std::vector<char const*> matched;
 	for (auto n = need.begin(); n != need.end();)
@@ -39,7 +39,7 @@ bool hasRequiredStrings(std::vector<char const*> need, std::vector<T> able, char
 		for (auto x : matched) cout << "  " << x << '\n';
 	}
 	cout << "\x1B[m";
-	for (auto x : able) cout << "  " << x.*name << '\n';
+	//for (auto x : able) cout << "  " << x.*name << '\n';
 	return success;
 }
 

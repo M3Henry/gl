@@ -63,7 +63,7 @@ private:
 			std::cout << "Vulkan extensions:\n";
 			if (not hasRequiredExtensions(requiredExtensions, available)) throw std::runtime_error("Missing required vulkan extension[s]");
 		}
-		const std::vector<char const*> requiredLayers = {"VK_LAYER_LUNARG_standard_validation"};
+		const std::vector<char const*> requiredLayers = {/*"VK_LAYER_LUNARG_standard_validation"*/};
 		{
 			auto available = vk::enumerateInstanceLayerProperties();
 			std::cout << "Vulkan layers:\n";
