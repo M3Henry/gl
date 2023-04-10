@@ -51,7 +51,8 @@ public:
 			}
 		}
 		std::cout << std::endl;
-		if (devices.size()) return devices.front();
+		if (devices.size())
+			return devices.front();
 		throw std::runtime_error("No suitable physical devices found!");
 	}
 private:
@@ -61,13 +62,15 @@ private:
 		{
 			auto available = vk::enumerateInstanceExtensionProperties();
 			std::cout << "Vulkan extensions:\n";
-			if (not hasRequiredExtensions(requiredExtensions, available)) throw std::runtime_error("Missing required vulkan extension[s]");
+			if (not hasRequiredExtensions(requiredExtensions, available))
+				throw std::runtime_error("Missing required vulkan extension[s]");
 		}
 		const std::vector<char const*> requiredLayers = {/*"VK_LAYER_LUNARG_standard_validation"*/};
 		{
 			auto available = vk::enumerateInstanceLayerProperties();
 			std::cout << "Vulkan layers:\n";
-			if (not hasRequiredLayers(requiredLayers, available)) throw std::runtime_error("Missing required vulkan layer[s]");
+			if (not hasRequiredLayers(requiredLayers, available))
+				throw std::runtime_error("Missing required vulkan layer[s]");
 		}
 		auto appInfo = vk::ApplicationInfo
 		(
