@@ -559,7 +559,7 @@ int main() try
 	mainWindow.makeContextCurrent();
 	mainWindow.setKeyCallback
 	(
-		[](glfw::window& window, int key, int scancode, int action, int mods)
+		[](glfw::window& window, int key, int /*scancode*/, int action, int /*mods*/)
 		{
 			if (action == GLFW_PRESS)
 			{

@@ -1,0 +1,10 @@
+COMMON = -fsanitize=undefined,address
+CXXFLAGS = $(COMMON) -std=c++20 -Wall -Wextra -Werror
+LDFLAGS = $(COMMON) -lglfw -lvulkan -fuse-ld=mold
+
+: foreach src/*.cpp |> c++ $(CXXFLAGS) -c -o %o %f |> %B.o {objs}
+: foreach src/shader.frag src/shader.vert |> glslangValidator -V -o %o %f |> %b.spv {spirv}
+: {spirv} |> ld -r -b binary -o %o %f |> shader.o {objs}
+: {objs} |> c++ $(LDFLAGS) -o %o %f |> vulkan-triangle
+
+.gitignore
